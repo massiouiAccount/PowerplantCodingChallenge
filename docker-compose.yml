@@ -1,0 +1,6 @@
+services:
+  powerplantcodingchallenge.webapi:
+    image: ${DOCKER_REGISTRY-}powerplantcodingchallengewebapi
+    build:
+      context: .
+      dockerfile: src/PowerplantCodingChallenge.WebApi/Dockerfile
