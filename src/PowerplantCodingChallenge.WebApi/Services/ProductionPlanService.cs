@@ -4,45 +4,39 @@ public class ProductionPlanService : IProductionPlanService
 {
   public IReadOnlyList<CalculatePowerProductionPlanResponse> CalculateProduction(CalculatePowerProductionPlanRequest loadRequest)
   {
-    if (loadRequest is null) return [];
+    double remainingLoadToProduce = loadRequest.LoadInMWh;
+    PowerPlant[] sortedPowerPlants = 
+      SortPowerPlantsByCostPerMWh(loadRequest.PowerPlants, loadRequest.Fuels);
+    List<CalculatePowerProductionPlanResponse> productionPlan = [];
 
-    IList<CalculatePowerProductionPlanResponse> productionPlanResponses = [];
-    decimal remainingLoadToBeProduced = loadRequest.LoadInMWh;
-
-    PowerPlant[] sortedPowerPlantsByCost =
-        SortPowerPlantsByCostPerMWh(loadRequest.PowerPlants, loadRequest.Fuels);
-
-    foreach (PowerPlant powerPlant in sortedPowerPlantsByCost)
+    foreach (var powerPlant in sortedPowerPlants)
     {
-      if (remainingLoadToBeProduced == decimal.Zero) break;
+      double powerProducedByPlant =
+          CalculatePowerForPlant(powerPlant, loadRequest.Fuels, remainingLoadToProduce);
 
-      // Determine the amount of power to be produced by the current power plant
-      decimal powerToBeProduced =
-          Math.Min(powerPlant.MaximumPowerOutput, remainingLoadToBeProduced);
+      remainingLoadToProduce -= powerProducedByPlant;
 
-      // Check if the current power plant can meet the minimum production requirement
-      bool canProduceMinimumPower = powerToBeProduced >= powerPlant.MinimumPowerOutput;
-
-      if (!canProduceMinimumPower)
-      {
-        productionPlanResponses.Add(new CalculatePowerProductionPlanResponse
-        {
-          PowerPlantName = powerPlant.Name,
-          PowerProducedInMWh = decimal.Zero
-        });
-        continue;
-      }
-
-      productionPlanResponses.Add(new CalculatePowerProductionPlanResponse
+      productionPlan.Add(new CalculatePowerProductionPlanResponse
       {
         PowerPlantName = powerPlant.Name,
-        PowerProducedInMWh = powerToBeProduced
+        PowerProducedInMWh = Math.Round(powerProducedByPlant, 1)
       });
 
-      remainingLoadToBeProduced -= powerToBeProduced;
+      if (remainingLoadToProduce <= 0) break;
     }
 
-    return productionPlanResponses.AsReadOnly();
+    // Append the rest of the plants with 0 power produced
+    var plantsWithNoPowerProduced = sortedPowerPlants.Where(p => !productionPlan.Exists(pp => pp.PowerPlantName == p.Name));
+    foreach (var powerPlant in plantsWithNoPowerProduced)
+    {
+      productionPlan.Add(new CalculatePowerProductionPlanResponse
+      {
+        PowerPlantName = powerPlant.Name,
+        PowerProducedInMWh = default
+      });
+    }
+
+    return productionPlan;
   }
 
   /// <summary>
@@ -71,24 +65,51 @@ public class ProductionPlanService : IProductionPlanService
   /// <exception cref="UnsupportedPowerPlantTypeException">
   /// Thrown when the power plant type is not supported.
   /// </exception>
-  private static decimal CalculateProductionCostPerMWh(PowerPlant powerPlant, Fuels fuelCosts)
+  private static double CalculateProductionCostPerMWh(PowerPlant powerPlant, Fuels fuelCosts)
   {
-    decimal unitsOfFuelRequired = CalculateRequiredUnitsOfFuel(powerPlant.Efficiency);
+    double unitsOfFuelRequired = CalculateRequiredUnitsOfFuel(powerPlant.Efficiency);
 
     return powerPlant.Type switch
     {
-      PowerPlantType.WindTurbine => decimal.Zero,
-      PowerPlantType.GasFired => unitsOfFuelRequired * (decimal)fuelCosts.GasPriceInEuroPerMWh,
-      PowerPlantType.TurboJet => unitsOfFuelRequired * (decimal)fuelCosts.KerosinePriceInEuroPerMWh,
+      PowerPlantType.WindTurbine => default,
+      PowerPlantType.GasFired => unitsOfFuelRequired * fuelCosts.GasPriceInEuroPerMWh,
+      PowerPlantType.TurboJet => unitsOfFuelRequired * fuelCosts.KerosinePriceInEuroPerMWh,
       _ => throw new UnsupportedPowerPlantTypeException(powerPlant.Type),
     };
 
     // Calculate the required units of fuel to produce 1 MWh of electricity based on efficiency
-    static decimal CalculateRequiredUnitsOfFuel(float efficiency)
+    static double CalculateRequiredUnitsOfFuel(double efficiency)
     {
       // Required units of fuel = 1 / efficiency
       // Example: If efficiency is 0.53, you need 1 / 0.53 units of fuel to produce 1 MWh
-      return (ushort)Unit.One / (decimal)efficiency;
+      return (ushort)Unit.One / efficiency;
     }
+  }
+
+  /// <summary>
+  /// Calculates the amount of power that a specific power plant can generate.
+  /// </summary>
+  /// <param name="powerPlant">The power plant for which the power production is calculated.</param>
+  /// <param name="fuelsCost">The current fuel costs and wind percentage affecting the power plant's operation.</param>
+  /// <param name="remainingLoadToProduce">The amount of load that still needs to be produced.</param>
+  /// <returns>The amount of power the plant can produce. Returns 0 if the plant cannot meet its minimum production requirement.</returns>
+  private static double CalculatePowerForPlant(PowerPlant powerPlant, Fuels fuelsCost, double remainingLoadToProduce)
+  {
+    if (powerPlant.Type == PowerPlantType.WindTurbine)
+    {
+      // Calculate power generated by wind turbines based on wind percentage
+      double powerFromWindTurbine = powerPlant.MaximumPowerOutput * (fuelsCost.WindPercentage / 100);
+      return powerFromWindTurbine;
+    }
+
+    // For other types of plants, calculate the power they can produce given the remaining load
+    double powerFromPlant = Math.Min(powerPlant.MaximumPowerOutput, remainingLoadToProduce);
+
+    // Check if the plant can meet its minimum production requirement
+    bool isPlantCapableOfMinimumPower = powerFromPlant >= powerPlant.MinimumPowerOutput;
+
+    if (!isPlantCapableOfMinimumPower) return default;
+
+    return powerFromPlant;
   }
 }
