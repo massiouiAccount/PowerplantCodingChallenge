@@ -6,6 +6,8 @@ public static class DependencyInjection
   {
     services.AddSingleton<IProductionPlanService, ProductionPlanService>();
 
+    services.AddExceptionHandler<CustomExceptionHandler>();
+
     return services;
   }
 }
