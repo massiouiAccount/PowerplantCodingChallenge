@@ -7,6 +7,7 @@ public record CalculatePowerProductionPlanRequest
   [JsonPropertyName("load")]
   public double LoadInMWh { get; init; }
 
+  [JsonPropertyName("fuels")]
   public Fuels Fuels { get; init; } = null!;
 
   [JsonPropertyName("powerplants")]
@@ -26,15 +27,19 @@ public record Fuels
   [JsonPropertyName("co2(euro/ton)")]
   public double Co2EmissionAllowancesPriceInEuroPerTon { get; init; }
 
-
   [JsonPropertyName("wind(%)")]
   public double WindPercentage { get; init; }
 }
 
 public record PowerPlant
 {
+  [JsonPropertyName("name")]
   public string Name { get; init; } = null!;
+
+  [JsonPropertyName("type")]
   public string Type { get; init; } = null!;
+
+  [JsonPropertyName("efficiency")]
   public double Efficiency { get; init; }
 
   [JsonPropertyName("pmin")]
